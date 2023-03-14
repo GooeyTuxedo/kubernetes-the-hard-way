@@ -1,8 +1,8 @@
 # Provisioning Compute Resources
 
-Kubernetes requires a set of machines to host the Kubernetes control plane and the worker nodes where containers are ultimately run. In this lab you will provision the compute resources required for running a secure and highly available Kubernetes cluster across a single [compute zone](https://cloud.google.com/compute/docs/regions-zones/regions-zones).
+Kubernetes requires a set of machines to host the Kubernetes control plane and the worker nodes where containers are ultimately run. In this lab you will provision the compute resources required for running a secure and highly available Kubernetes cluster across a single [compute region](https://docs.digitalocean.com/products/platform/availability-matrix/).
 
-> Ensure a default compute zone and region have been set as described in the [Prerequisites](01-prerequisites.md#set-a-default-compute-region-and-zone) lab.
+> Ensure a default compute zone and region have been set as described in the [Prerequisites](01-prerequisites.md#set-a-default-compute-region) lab.
 
 ## Networking
 
@@ -12,27 +12,30 @@ The Kubernetes [networking model](https://kubernetes.io/docs/concepts/cluster-ad
 
 ### Virtual Private Cloud Network
 
-In this section a dedicated [Virtual Private Cloud](https://cloud.google.com/compute/docs/networks-and-firewalls#networks) (VPC) network will be setup to host the Kubernetes cluster.
+In this section a dedicated [Virtual Private Cloud](https://docs.digitalocean.com/products/networking/vpc/) (VPC) network will be setup to host the Kubernetes cluster.
 
-Create the `kubernetes-the-hard-way` custom VPC network:
+A [subnet](https://docs.digitalocean.com/products/networking/vpc/) must be provisioned with an IP address range large enough to assign a private IP address to each node in the Kubernetes cluster.
 
-```
-gcloud compute networks create kubernetes-the-hard-way --subnet-mode custom
-```
+Create the `kubernetes-the-hard-way` VPC network with subnet:
 
-A [subnet](https://cloud.google.com/compute/docs/vpc/#vpc_networks_and_subnets) must be provisioned with an IP address range large enough to assign a private IP address to each node in the Kubernetes cluster.
-
-Create the `kubernetes` subnet in the `kubernetes-the-hard-way` VPC network:
-
-```
-gcloud compute networks subnets create kubernetes \
-  --network kubernetes-the-hard-way \
-  --range 10.240.0.0/24
+```sh
+doctl vpcs create --name kubernetes-the-hard-way \
+  --description "Kubernetes tutorial network" \
+  --ip-range 10.240.0.0/24
 ```
 
 > The `10.240.0.0/24` IP address range can host up to 254 compute instances.
 
 ### Firewall Rules
+
+Create a firewall with a rule that allow internal communication across all protocols and a firewall rule that allows external SSH, ICMP, and HTTPS:
+
+```sh
+doctl compute firewall create \
+  --name kubernetes-the-hard-way \
+  --inbound-rules protocol:tcp,ports:22,droplet_id:123 \
+  --outbound-rules protocol:tcp,ports:22,address:0.0.0.0/0
+```
 
 Create a firewall rule that allows internal communication across all protocols:
 
