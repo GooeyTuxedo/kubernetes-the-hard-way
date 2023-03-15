@@ -72,6 +72,35 @@ Set your new VPC as the default for the region
 doctl vpcs update xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --default
 ```
 
+### Firewall Rules
+
+Create a firewall with a rule that allow internal communication across all protocols and a firewall rule that allows external SSH, ICMP, and HTTPS:
+
+##### TODO: pretty this up
+
+```sh
+doctl compute firewall create \
+  --name kubernetes-the-hard-way \
+  --tag-names kubernetes-the-hard-way \
+  --outbound-rules "protocol:tcp,ports:0,address:0.0.0.0/0 protocol:udp,ports:0,address:0.0.0.0/0 protocol:icmp,address:0.0.0.0/0" \
+  --inbound-rules "protocol:tcp,ports:22,address:0.0.0.0/0 protocol:tcp,ports:6443,address:0.0.0.0/0 protocol:icmp,address:0.0.0.0/0"
+```
+
+> An [external load balancer](https://docs.digitalocean.com/products/networking/load-balancers/) will be used to expose the Kubernetes API Servers to remote clients.
+
+List the firewall rules in the `kubernetes-the-hard-way` VPC network:
+
+
+```sh
+doctl compute firewall list --format "Name, Status, Created, InboundRules, OutboundRules, Tags"
+```
+> output
+
+```
+Name                       Status       Created At              Inbound Rules                                                 Outbound Rules                                                                                                       Tags
+kubernetes-the-hard-way    succeeded    2023-03-15T22:16:27Z    protocol:icmp, protocol:tcp,ports:0, protocol:udp,ports:0,    protocol:icmp,address:0.0.0.0/0 protocol:tcp,ports:22,address:0.0.0.0/0 protocol:tcp,ports:6443,address:0.0.0.0/0    kubernetes-the-hard-way
+```
+
 ### Kubernetes Public IP Address
 
 Allocate a static IP address that will be attached to the external load balancer fronting the Kubernetes API Servers using the ID you got while [creating your project earlier](#Create-a-new-project):
@@ -79,7 +108,7 @@ Allocate a static IP address that will be attached to the external load balancer
 ```sh
 doctl compute reserved-ip create \
   --project-id xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
-  --format "`IP, Region, ProjectID"
+  --format "IP, Region, ProjectID"
 ```
 
 > output
@@ -111,7 +140,7 @@ Create three compute instances which will host the Kubernetes control plane:
 for i in 0 1 2; do
   doctl compute droplet create controller-${i} \
     --size s-1vcpu-1gb \
-    --image ubuntu-22-04-x64 \
+    --image ubuntu-22-04-x64 \    --enable-monitoring \
     --enable-private-networking \
     --tag-names kubernetes-the-hard-way,controller \
     --format "ID, Name, Memory, VCPUs, Disk, Region, Image, Status"
@@ -129,10 +158,12 @@ Create three compute instances which will host the Kubernetes worker nodes:
 ```sh
 for i in 0 1 2; do
   doctl compute droplet create worker-${i} \
-    --size s-1vcpu-1gb \ # s-1vcpu-512mb-10gb
+    --size s-1vcpu-1gb \
     --image ubuntu-22-04-x64 \
+    --enable-monitoring \
     --enable-private-networking \
     --tag-names kubernetes-the-hard-way,worker \
+    --user-data pod-cidr=10.200.${i}.0/24 \
     --format "ID, Name, Memory, VCPUs, Disk, Region, Image, Status" 
 done
 ```
@@ -154,38 +185,6 @@ xxxxxxxxx    controller-0       xxx.xxx.xxx.xxx    10.240.0.3      sfo3      Ubu
 xxxxxxxxx    worker-0           xxx.xxx.xxx.xxx    10.240.0.2      sfo3      Ubuntu 20.04 (LTS) x64    active
 ```
 
-### Firewall Rules
-
-Create a firewall with a rule that allow internal communication across all protocols and a firewall rule that allows external SSH, ICMP, and HTTPS:
-
-##### not sure if this  works yet, don't make firewall rules until droplets are created
-
-```sh
-doctl compute firewall create \
-  --name kubernetes-the-hard-way \
-  --inbound-rules protocol:tcp,ports:22,droplet_id:123 \
-  --outbound-rules protocol:tcp,ports:22,address:0.0.0.0/0
-```
-
-> An [external load balancer](https://docs.digitalocean.com/products/networking/load-balancers/) will be used to expose the Kubernetes API Servers to remote clients.
-
-List the firewall rules in the `kubernetes-the-hard-way` VPC network:
-
-```
-gcloud compute firewall-rules list --filter="network:kubernetes-the-hard-way"
-```
-```sh
-doctl compute firewall list
-```
-> output
-
-```
-NAME                                    NETWORK                  DIRECTION  PRIORITY  ALLOW                 DENY  DISABLED
-kubernetes-the-hard-way-allow-external  kubernetes-the-hard-way  INGRESS    1000      tcp:22,tcp:6443,icmp        False
-kubernetes-the-hard-way-allow-internal  kubernetes-the-hard-way  INGRESS    1000      tcp,udp,icmp                Fals
-```
-
-
 ## Validate SSH Access
 
 SSH will be used to connect to compute instances. Refer to the [Connect With SSH](https://docs.digitalocean.com/products/droplets/how-to/connect-with-ssh/) documentation.
@@ -196,10 +195,35 @@ Test SSH access to the `controller-0` compute instances:
 doctl compute ssh controller-0
 ```
 
+You'll be prompted to enter the `root` password that was emailed to you when you created the droplet, and then forced to change it immediately.
+
 After the you've been successfully connected you'll be logged into the `controller-0` instance:
 
 ```
-Welcome to Ubuntu 20.04.2 LTS (GNU/Linux 5.4.0-1042-gcp x86_64)
+Welcome to Ubuntu 22.04.1 LTS (GNU/Linux 5.15.0-50-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Wed Mar 15 22:42:08 UTC 2023
+
+  System load:  0.0               Users logged in:       0
+  Usage of /:   6.5% of 24.05GB   IPv4 address for eth0: xxx.xxx.xxx.xxx
+  Memory usage: 22%               IPv4 address for eth0: xxx.xxx.xxx.xxx
+  Swap usage:   0%                IPv4 address for eth1: xxx.xxx.xxx.xxx
+  Processes:    92
+
+0 updates can be applied immediately.
+
+
+
+The programs included with the Ubuntu system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Ubuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
 ...
 ```
 
