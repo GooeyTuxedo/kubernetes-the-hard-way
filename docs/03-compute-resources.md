@@ -12,13 +12,29 @@ DigitalOcean Projects allow you to organize your DigitalOcean resources (like Dr
 doctl projects create --name kubernetes-the-hard-way \
   --description "Kubernetes tutorial project" \
   --purpose "Class project / Educational purposes" \
-  --is_default true
+  --format "ID, Name, IsDefault, CreatedAt"
+```
+
+> output
+
+```
+ID                                      Name                       Is Default?    Created At
+xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx    kubernetes-the-hard-way    false          2023-03-15T03:19:16Z
+```
+
+Set your new project to the ID in the returned output
+
+```sh
+doctl projects update xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+  --is_default \
+  --format "ID, Name, IsDefault, CreatedAt"
+
 ```
 
 ### Verification
 
-```
-doctl projects list
+```sh
+doctl projects list --format "ID, Name, IsDefault, CreatedAt"
 ```
 
 ## Networking
@@ -33,6 +49,8 @@ In this section a dedicated [Virtual Private Cloud](https://docs.digitalocean.co
 
 A [subnet](https://docs.digitalocean.com/products/networking/vpc/) must be provisioned with an IP address range large enough to assign a private IP address to each node in the Kubernetes cluster.
 
+> The `10.240.0.0/24` IP address range used below can host up to 254 compute instances.
+
 Create the `kubernetes-the-hard-way` VPC network with subnet:
 
 ```sh
@@ -41,7 +59,100 @@ doctl vpcs create --name kubernetes-the-hard-way \
   --ip-range 10.240.0.0/24
 ```
 
-> The `10.240.0.0/24` IP address range can host up to 254 compute instances.
+> output
+
+```
+ID                                      URN                                            Name                       Description                    IP Range         Region    Created At                                 Default
+xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx    do:vpc:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx    kubernetes-the-hard-way    Kubernetes tutorial network    10.240.0.0/24    sfo3      2023-03-15 04:28:44.517360199 +0000 UTC    false
+```
+
+Set your new VPC as the default for the region
+
+```sh
+doctl vpcs update xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx --default
+```
+
+### Kubernetes Public IP Address
+
+Allocate a static IP address that will be attached to the external load balancer fronting the Kubernetes API Servers using the ID you got while [creating your project earlier](#Create-a-new-project):
+
+```sh
+doctl compute reserved-ip create \
+  --project-id xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx \
+  --format "`IP, Region, ProjectID"
+```
+
+> output
+
+```
+IP                 Region    Project ID
+XXX.XXX.XXX.XXX    sfo3      xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+```
+
+## Upload a SSH public key
+
+DigitalOcean allows you to add SSH public keys to the interface so that you can embed your public key into a Droplet at the time of creation. Only the public key is required to take advantage of this functionality.
+
+```sh
+doctl compute ssh-key create ships-captain \
+  --public-key $K8S_HARD_SSH_PUB_KEY
+```
+
+## Compute Instances
+
+The compute instances in this lab will be provisioned using [Ubuntu Server](https://www.ubuntu.com/server) 20.04, which has good support for the [containerd container runtime](https://github.com/containerd/containerd). Each compute instance will be provisioned with a fixed private IP address to simplify the Kubernetes bootstrapping process.
+
+### Kubernetes Controllers
+
+Create three compute instances which will host the Kubernetes control plane:
+
+
+```sh
+for i in 0 1 2; do
+  doctl compute droplet create controller-${i} \
+    --size s-1vcpu-1gb \
+    --image ubuntu-22-04-x64 \
+    --enable-private-networking \
+    --tag-names kubernetes-the-hard-way,controller \
+    --format "ID, Name, Memory, VCPUs, Disk, Region, Image, Status"
+done
+```
+
+### Kubernetes Workers
+
+Each worker instance requires a pod subnet allocation from the Kubernetes cluster CIDR range. The pod subnet allocation will be used to configure container networking in a later exercise. The `pod-cidr` instance metadata will be used to expose pod subnet allocations to compute instances at runtime.
+
+> The Kubernetes cluster CIDR range is defined by the Controller Manager's `--cluster-cidr` flag. In this tutorial the cluster CIDR range will be set to `10.200.0.0/16`, which supports 254 subnets.
+
+Create three compute instances which will host the Kubernetes worker nodes:
+
+```sh
+for i in 0 1 2; do
+  doctl compute droplet create worker-${i} \
+    --size s-1vcpu-1gb \ # s-1vcpu-512mb-10gb
+    --image ubuntu-22-04-x64 \
+    --enable-private-networking \
+    --tag-names kubernetes-the-hard-way,worker \
+    --format "ID, Name, Memory, VCPUs, Disk, Region, Image, Status" 
+done
+```
+
+### Verification
+
+List the compute instances in your default compute zone:
+
+```sh
+doctl compute droplet list \
+  --format "ID, Name, PublicIPv4, PrivateIPv4, Region, Image, Status, Features"
+```
+
+> output
+
+```
+ID           Name               Public IPv4        Private IPv4    Region    Image                     Status
+xxxxxxxxx    controller-0       xxx.xxx.xxx.xxx    10.240.0.3      sfo3      Ubuntu 20.04 (LTS) x64    active
+xxxxxxxxx    worker-0           xxx.xxx.xxx.xxx    10.240.0.2      sfo3      Ubuntu 20.04 (LTS) x64    active
+```
 
 ### Firewall Rules
 
@@ -74,133 +185,6 @@ kubernetes-the-hard-way-allow-external  kubernetes-the-hard-way  INGRESS    1000
 kubernetes-the-hard-way-allow-internal  kubernetes-the-hard-way  INGRESS    1000      tcp,udp,icmp                Fals
 ```
 
-### Kubernetes Public IP Address
-
-Allocate a static IP address that will be attached to the external load balancer fronting the Kubernetes API Servers:
-
-```
-gcloud compute addresses create kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region)
-```
-
-```sh
-doctl compute reserved-ip create 
-```
-
-Verify the `kubernetes-the-hard-way` static IP address was created in your default compute region:
-
-```
-gcloud compute addresses list --filter="name=('kubernetes-the-hard-way')"
-```
-
-```sh
-doctl compute reserved-ip list
-```
-
-> output
-
-```
-NAME                     ADDRESS/RANGE   TYPE      PURPOSE  NETWORK  REGION    SUBNET  STATUS
-kubernetes-the-hard-way  XX.XXX.XXX.XXX  EXTERNAL                    us-west1          RESERVED
-```
-
-## Upload a SSH public key
-
-DigitalOcean allows you to add SSH public keys to the interface so that you can embed your public key into a Droplet at the time of creation. Only the public key is required to take advantage of this functionality.
-
-```sh
-doctl compute ssh-key import ships-captain \
-  --public-key-file $K8S_HARD_SSH_PUB_KEY_FILE_PATH
-```
-
-## Compute Instances
-
-The compute instances in this lab will be provisioned using [Ubuntu Server](https://www.ubuntu.com/server) 20.04, which has good support for the [containerd container runtime](https://github.com/containerd/containerd). Each compute instance will be provisioned with a fixed private IP address to simplify the Kubernetes bootstrapping process.
-
-### Kubernetes Controllers
-
-Create three compute instances which will host the Kubernetes control plane:
-
-```
-for i in 0 1 2; do
-  gcloud compute instances create controller-${i} \
-    --async \
-    --boot-disk-size 200GB \
-    --can-ip-forward \
-    --image-family ubuntu-2004-lts \
-    --image-project ubuntu-os-cloud \
-    --machine-type e2-standard-2 \
-    --private-network-ip 10.240.0.1${i} \
-    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
-    --subnet kubernetes \
-    --tags kubernetes-the-hard-way,controller
-done
-```
-
-```sh
-for i in 0 1 2; do
-  doctl compute droplet create controller-${i} \
-    --size s-1vcpu-1gb \
-    --image ubuntu-20-04-x64 \
-    --enable-private-networking true \
-    --tag-names kubernetes-the-hard-way,controller 
-done
-```
-
-### Kubernetes Workers
-
-Each worker instance requires a pod subnet allocation from the Kubernetes cluster CIDR range. The pod subnet allocation will be used to configure container networking in a later exercise. The `pod-cidr` instance metadata will be used to expose pod subnet allocations to compute instances at runtime.
-
-> The Kubernetes cluster CIDR range is defined by the Controller Manager's `--cluster-cidr` flag. In this tutorial the cluster CIDR range will be set to `10.200.0.0/16`, which supports 254 subnets.
-
-Create three compute instances which will host the Kubernetes worker nodes:
-
-```
-for i in 0 1 2; do
-  gcloud compute instances create worker-${i} \
-    --async \
-    --boot-disk-size 200GB \
-    --can-ip-forward \
-    --image-family ubuntu-2004-lts \
-    --image-project ubuntu-os-cloud \
-    --machine-type e2-standard-2 \
-    --metadata pod-cidr=10.200.${i}.0/24 \
-    --private-network-ip 10.240.0.2${i} \
-    --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
-    --subnet kubernetes \
-    --tags kubernetes-the-hard-way,worker
-done
-```
-
-```sh
-for i in 0 1 2; do
-  doctl compute droplet create worker-${i} \
-    --size s-1vcpu-1gb \
-    --image ubuntu-20-04-x64 \
-    --enable-private-networking true \
-    --tag-names kubernetes-the-hard-way,worker 
-done
-```
-
-### Verification
-
-List the compute instances in your default compute zone:
-
-```sh
-doctl compute droplet list
-```
-
-> output
-
-```
-NAME          ZONE        MACHINE_TYPE   PREEMPTIBLE  INTERNAL_IP  EXTERNAL_IP    STATUS
-controller-0  us-west1-c  e2-standard-2               10.240.0.10  XX.XX.XX.XXX   RUNNING
-controller-1  us-west1-c  e2-standard-2               10.240.0.11  XX.XXX.XXX.XX  RUNNING
-controller-2  us-west1-c  e2-standard-2               10.240.0.12  XX.XXX.XX.XXX  RUNNING
-worker-0      us-west1-c  e2-standard-2               10.240.0.20  XX.XX.XXX.XXX  RUNNING
-worker-1      us-west1-c  e2-standard-2               10.240.0.21  XX.XX.XX.XXX   RUNNING
-worker-2      us-west1-c  e2-standard-2               10.240.0.22  XX.XXX.XX.XX   RUNNING
-```
 
 ## Validate SSH Access
 

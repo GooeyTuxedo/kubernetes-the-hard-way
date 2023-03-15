@@ -31,6 +31,9 @@ Edit your `~/.config/doctl/config.yaml` as follows
 droplet:
     create:
         region: sfo3
+reserved-ip:
+    create:
+        region: sfo3
 vpcs:
     create:
         region: sfo3
