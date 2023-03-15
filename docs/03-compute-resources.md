@@ -4,6 +4,23 @@ Kubernetes requires a set of machines to host the Kubernetes control plane and t
 
 > Ensure a default compute zone and region have been set as described in the [Prerequisites](01-prerequisites.md#set-a-default-compute-region) lab.
 
+## Create a new project
+
+DigitalOcean Projects allow you to organize your DigitalOcean resources (like Droplets, Spaces, load balancers, domains, and floating IPs) into groups that fit the way you work.
+
+```sh
+doctl projects create --name kubernetes-the-hard-way \
+  --description "Kubernetes tutorial project" \
+  --purpose "Class project / Educational purposes" \
+  --is_default true
+```
+
+### Verification
+
+```
+doctl projects list
+```
+
 ## Networking
 
 The Kubernetes [networking model](https://kubernetes.io/docs/concepts/cluster-administration/networking/#kubernetes-model) assumes a flat network in which containers and nodes can communicate with each other. In cases where this is not desired [network policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) can limit how groups of containers are allowed to communicate with each other and external network endpoints.
@@ -30,6 +47,8 @@ doctl vpcs create --name kubernetes-the-hard-way \
 
 Create a firewall with a rule that allow internal communication across all protocols and a firewall rule that allows external SSH, ICMP, and HTTPS:
 
+##### not sure if this  works yet, don't make firewall rules until droplets are created
+
 ```sh
 doctl compute firewall create \
   --name kubernetes-the-hard-way \
@@ -37,32 +56,16 @@ doctl compute firewall create \
   --outbound-rules protocol:tcp,ports:22,address:0.0.0.0/0
 ```
 
-Create a firewall rule that allows internal communication across all protocols:
-
-```
-gcloud compute firewall-rules create kubernetes-the-hard-way-allow-internal \
-  --allow tcp,udp,icmp \
-  --network kubernetes-the-hard-way \
-  --source-ranges 10.240.0.0/24,10.200.0.0/16
-```
-
-Create a firewall rule that allows external SSH, ICMP, and HTTPS:
-
-```
-gcloud compute firewall-rules create kubernetes-the-hard-way-allow-external \
-  --allow tcp:22,tcp:6443,icmp \
-  --network kubernetes-the-hard-way \
-  --source-ranges 0.0.0.0/0
-```
-
-> An [external load balancer](https://cloud.google.com/compute/docs/load-balancing/network/) will be used to expose the Kubernetes API Servers to remote clients.
+> An [external load balancer](https://docs.digitalocean.com/products/networking/load-balancers/) will be used to expose the Kubernetes API Servers to remote clients.
 
 List the firewall rules in the `kubernetes-the-hard-way` VPC network:
 
 ```
 gcloud compute firewall-rules list --filter="network:kubernetes-the-hard-way"
 ```
-
+```sh
+doctl compute firewall list
+```
 > output
 
 ```
@@ -80,10 +83,18 @@ gcloud compute addresses create kubernetes-the-hard-way \
   --region $(gcloud config get-value compute/region)
 ```
 
+```sh
+doctl compute reserved-ip create 
+```
+
 Verify the `kubernetes-the-hard-way` static IP address was created in your default compute region:
 
 ```
 gcloud compute addresses list --filter="name=('kubernetes-the-hard-way')"
+```
+
+```sh
+doctl compute reserved-ip list
 ```
 
 > output
@@ -91,6 +102,15 @@ gcloud compute addresses list --filter="name=('kubernetes-the-hard-way')"
 ```
 NAME                     ADDRESS/RANGE   TYPE      PURPOSE  NETWORK  REGION    SUBNET  STATUS
 kubernetes-the-hard-way  XX.XXX.XXX.XXX  EXTERNAL                    us-west1          RESERVED
+```
+
+## Upload a SSH public key
+
+DigitalOcean allows you to add SSH public keys to the interface so that you can embed your public key into a Droplet at the time of creation. Only the public key is required to take advantage of this functionality.
+
+```sh
+doctl compute ssh-key import ships-captain \
+  --public-key-file $K8S_HARD_SSH_PUB_KEY_FILE_PATH
 ```
 
 ## Compute Instances
@@ -114,6 +134,16 @@ for i in 0 1 2; do
     --scopes compute-rw,storage-ro,service-management,service-control,logging-write,monitoring \
     --subnet kubernetes \
     --tags kubernetes-the-hard-way,controller
+done
+```
+
+```sh
+for i in 0 1 2; do
+  doctl compute droplet create controller-${i} \
+    --size s-1vcpu-1gb \
+    --image ubuntu-20-04-x64 \
+    --enable-private-networking true \
+    --tag-names kubernetes-the-hard-way,controller 
 done
 ```
 
@@ -142,12 +172,22 @@ for i in 0 1 2; do
 done
 ```
 
+```sh
+for i in 0 1 2; do
+  doctl compute droplet create worker-${i} \
+    --size s-1vcpu-1gb \
+    --image ubuntu-20-04-x64 \
+    --enable-private-networking true \
+    --tag-names kubernetes-the-hard-way,worker 
+done
+```
+
 ### Verification
 
 List the compute instances in your default compute zone:
 
-```
-gcloud compute instances list --filter="tags.items=kubernetes-the-hard-way"
+```sh
+doctl compute droplet list
 ```
 
 > output
@@ -162,53 +202,17 @@ worker-1      us-west1-c  e2-standard-2               10.240.0.21  XX.XX.XX.XXX 
 worker-2      us-west1-c  e2-standard-2               10.240.0.22  XX.XXX.XX.XX   RUNNING
 ```
 
-## Configuring SSH Access
+## Validate SSH Access
 
-SSH will be used to configure the controller and worker instances. When connecting to compute instances for the first time SSH keys will be generated for you and stored in the project or instance metadata as described in the [connecting to instances](https://cloud.google.com/compute/docs/instances/connecting-to-instance) documentation.
+SSH will be used to connect to compute instances. Refer to the [Connect With SSH](https://docs.digitalocean.com/products/droplets/how-to/connect-with-ssh/) documentation.
 
 Test SSH access to the `controller-0` compute instances:
 
 ```
-gcloud compute ssh controller-0
+doctl compute ssh controller-0
 ```
 
-If this is your first time connecting to a compute instance SSH keys will be generated for you. Enter a passphrase at the prompt to continue:
-
-```
-WARNING: The public SSH key file for gcloud does not exist.
-WARNING: The private SSH key file for gcloud does not exist.
-WARNING: You do not have an SSH key for gcloud.
-WARNING: SSH keygen will be executed to generate a key.
-Generating public/private rsa key pair.
-Enter passphrase (empty for no passphrase):
-Enter same passphrase again:
-```
-
-At this point the generated SSH keys will be uploaded and stored in your project:
-
-```
-Your identification has been saved in /home/$USER/.ssh/google_compute_engine.
-Your public key has been saved in /home/$USER/.ssh/google_compute_engine.pub.
-The key fingerprint is:
-SHA256:nz1i8jHmgQuGt+WscqP5SeIaSy5wyIJeL71MuV+QruE $USER@$HOSTNAME
-The key's randomart image is:
-+---[RSA 2048]----+
-|                 |
-|                 |
-|                 |
-|        .        |
-|o.     oS        |
-|=... .o .o o     |
-|+.+ =+=.+.X o    |
-|.+ ==O*B.B = .   |
-| .+.=EB++ o      |
-+----[SHA256]-----+
-Updating project ssh metadata...-Updated [https://www.googleapis.com/compute/v1/projects/$PROJECT_ID].
-Updating project ssh metadata...done.
-Waiting for SSH key to propagate.
-```
-
-After the SSH keys have been updated you'll be logged into the `controller-0` instance:
+After the you've been successfully connected you'll be logged into the `controller-0` instance:
 
 ```
 Welcome to Ubuntu 20.04.2 LTS (GNU/Linux 5.4.0-1042-gcp x86_64)
