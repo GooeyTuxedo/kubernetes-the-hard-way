@@ -12,10 +12,8 @@ Each kubeconfig requires a Kubernetes API Server to connect to. To support high 
 
 Retrieve the `kubernetes-the-hard-way` static IP address:
 
-```
-KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region) \
-  --format 'value(address)')
+```sh
+KUBERNETES_PUBLIC_ADDRESS=$(doctl compute reserved-ip list --no-header --format "IP")
 ```
 
 ### The kubelet Kubernetes Configuration File
@@ -26,8 +24,9 @@ When generating kubeconfig files for Kubelets the client certificate matching th
 
 Generate a kubeconfig file for each worker node:
 
-```
+```sh
 for instance in worker-0 worker-1 worker-2; do
+  # instance=worker-0
   kubectl config set-cluster kubernetes-the-hard-way \
     --certificate-authority=ca.pem \
     --embed-certs=true \
@@ -61,7 +60,7 @@ worker-2.kubeconfig
 
 Generate a kubeconfig file for the `kube-proxy` service:
 
-```
+```sh
 {
   kubectl config set-cluster kubernetes-the-hard-way \
     --certificate-authority=ca.pem \
@@ -94,7 +93,7 @@ kube-proxy.kubeconfig
 
 Generate a kubeconfig file for the `kube-controller-manager` service:
 
-```
+```sh
 {
   kubectl config set-cluster kubernetes-the-hard-way \
     --certificate-authority=ca.pem \
@@ -161,7 +160,7 @@ kube-scheduler.kubeconfig
 
 Generate a kubeconfig file for the `admin` user:
 
-```
+```sh
 {
   kubectl config set-cluster kubernetes-the-hard-way \
     --certificate-authority=ca.pem \
@@ -197,17 +196,22 @@ admin.kubeconfig
 
 Copy the appropriate `kubelet` and `kube-proxy` kubeconfig files to each worker instance:
 
-```
+```sh
 for instance in worker-0 worker-1 worker-2; do
-  gcloud compute scp ${instance}.kubeconfig kube-proxy.kubeconfig ${instance}:~/
+  # instance=worker-0
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kube-proxy.kubeconfig
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ${instance}.kubeconfig
 done
 ```
 
 Copy the appropriate `kube-controller-manager` and `kube-scheduler` kubeconfig files to each controller instance:
 
-```
+```sh
 for instance in controller-0 controller-1 controller-2; do
-  gcloud compute scp admin.kubeconfig kube-controller-manager.kubeconfig kube-scheduler.kubeconfig ${instance}:~/
+  # instance=controller-0
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ admin.kubeconfig
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kube-controller-manager.kubeconfig
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kube-scheduler.kubeconfig
 done
 ```
 

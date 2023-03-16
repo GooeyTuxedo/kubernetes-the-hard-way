@@ -389,12 +389,13 @@ service-account.pem
 
 ## Distribute the Client and Server Certificates
 
-##### VV  Ugh, clean these up  VV
+##### VV  Ugh, clean these up and refactor for multiple copies  VV
 
 Copy the appropriate certificates and private keys to each worker instance:
 
-```
+```sh
 for instance in worker-0 worker-1 worker-2; do
+  # instance=worker-0
   sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca.pem
   sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ${instance}-key.pem
   sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ${instance}.pem
@@ -403,8 +404,9 @@ done
 
 Copy the appropriate certificates and private keys to each controller instance:
 
-```
+```sh
 for instance in controller-0 controller-1 controller-2; do
+  # instance=controller-0
     sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca.pem
     sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca-key.pem
     sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kubernetes.pem
