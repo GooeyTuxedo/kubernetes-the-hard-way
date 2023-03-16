@@ -8,7 +8,7 @@ In this section you will provision a Certificate Authority that can be used to g
 
 Generate the CA configuration file, certificate, and private key:
 
-```
+```sh
 {
 
 cat > ca-config.json <<EOF
@@ -66,7 +66,7 @@ In this section you will generate client and server certificates for each Kubern
 
 Generate the `admin` client certificate and private key:
 
-```
+```sh
 {
 
 cat > admin-csr.json <<EOF
@@ -111,8 +111,9 @@ Kubernetes uses a [special-purpose authorization mode](https://kubernetes.io/doc
 
 Generate a certificate and private key for each Kubernetes worker node:
 
-```
+```sh
 for instance in worker-0 worker-1 worker-2; do
+# instance=worker-0
 cat > ${instance}-csr.json <<EOF
 {
   "CN": "system:node:${instance}",
@@ -132,11 +133,9 @@ cat > ${instance}-csr.json <<EOF
 }
 EOF
 
-EXTERNAL_IP=$(gcloud compute instances describe ${instance} \
-  --format 'value(networkInterfaces[0].accessConfigs[0].natIP)')
+EXTERNAL_IP=$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4")
 
-INTERNAL_IP=$(gcloud compute instances describe ${instance} \
-  --format 'value(networkInterfaces[0].networkIP)')
+INTERNAL_IP=$(doctl compute droplet get ${instance} --no-header --format "PrivateIPv4")
 
 cfssl gencert \
   -ca=ca.pem \
@@ -163,7 +162,7 @@ worker-2.pem
 
 Generate the `kube-controller-manager` client certificate and private key:
 
-```
+```sh
 {
 
 cat > kube-controller-manager-csr.json <<EOF
@@ -207,7 +206,7 @@ kube-controller-manager.pem
 
 Generate the `kube-proxy` client certificate and private key:
 
-```
+```sh
 {
 
 cat > kube-proxy-csr.json <<EOF
@@ -250,7 +249,7 @@ kube-proxy.pem
 
 Generate the `kube-scheduler` client certificate and private key:
 
-```
+```sh
 {
 
 cat > kube-scheduler-csr.json <<EOF
@@ -296,12 +295,10 @@ The `kubernetes-the-hard-way` static IP address will be included in the list of 
 
 Generate the Kubernetes API Server certificate and private key:
 
-```
+```sh
 {
 
-KUBERNETES_PUBLIC_ADDRESS=$(gcloud compute addresses describe kubernetes-the-hard-way \
-  --region $(gcloud config get-value compute/region) \
-  --format 'value(address)')
+KUBERNETES_PUBLIC_ADDRESS=$(doctl compute reserved-ip list --no-header --format "IP")
 
 KUBERNETES_HOSTNAMES=kubernetes,kubernetes.default,kubernetes.default.svc,kubernetes.default.svc.cluster,kubernetes.svc.cluster.local
 
@@ -350,7 +347,7 @@ The Kubernetes Controller Manager leverages a key pair to generate and sign serv
 
 Generate the `service-account` certificate and private key:
 
-```
+```sh
 {
 
 cat > service-account-csr.json <<EOF
@@ -392,11 +389,15 @@ service-account.pem
 
 ## Distribute the Client and Server Certificates
 
+##### VV  Ugh, clean these up  VV
+
 Copy the appropriate certificates and private keys to each worker instance:
 
 ```
 for instance in worker-0 worker-1 worker-2; do
-  gcloud compute scp ca.pem ${instance}-key.pem ${instance}.pem ${instance}:~/
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca.pem
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ${instance}-key.pem
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ${instance}.pem
 done
 ```
 
@@ -404,8 +405,12 @@ Copy the appropriate certificates and private keys to each controller instance:
 
 ```
 for instance in controller-0 controller-1 controller-2; do
-  gcloud compute scp ca.pem ca-key.pem kubernetes-key.pem kubernetes.pem \
-    service-account-key.pem service-account.pem ${instance}:~/
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca.pem
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ ca-key.pem
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kubernetes.pem
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ kubernetes-key.pem
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ service-account.pem
+    sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ service-account-key.pem
 done
 ```
 
