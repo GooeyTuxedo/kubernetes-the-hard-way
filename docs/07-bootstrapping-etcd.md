@@ -4,10 +4,10 @@ Kubernetes components are stateless and store cluster state in [etcd](https://gi
 
 ## Prerequisites
 
-The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller instance using the `gcloud` command. Example:
+The commands in this lab must be run on each controller instance: `controller-0`, `controller-1`, and `controller-2`. Login to each controller instance using the `doctl` command. Example:
 
-```
-gcloud compute ssh controller-0
+```sh
+doctl compute ssh controller-0
 ```
 
 ### Running commands in parallel with tmux
@@ -20,23 +20,23 @@ gcloud compute ssh controller-0
 
 Download the official etcd release binaries from the [etcd](https://github.com/etcd-io/etcd) GitHub project:
 
-```
+```sh
 wget -q --show-progress --https-only --timestamping \
-  "https://github.com/etcd-io/etcd/releases/download/v3.4.15/etcd-v3.4.15-linux-amd64.tar.gz"
+  "https://github.com/etcd-io/etcd/releases/download/v3.5.7/etcd-v3.5.7-linux-amd64.tar.gz"
 ```
 
 Extract and install the `etcd` server and the `etcdctl` command line utility:
 
-```
+```sh
 {
-  tar -xvf etcd-v3.4.15-linux-amd64.tar.gz
-  sudo mv etcd-v3.4.15-linux-amd64/etcd* /usr/local/bin/
+  tar -xvf etcd-v3.5.7-linux-amd64.tar.gz
+  sudo mv etcd-v3.5.7-linux-amd64/etcd* /usr/local/bin/
 }
 ```
 
 ### Configure the etcd Server
 
-```
+```sh
 {
   sudo mkdir -p /etc/etcd /var/lib/etcd
   sudo chmod 700 /var/lib/etcd
@@ -46,20 +46,20 @@ Extract and install the `etcd` server and the `etcdctl` command line utility:
 
 The instance internal IP address will be used to serve client requests and communicate with etcd cluster peers. Retrieve the internal IP address for the current compute instance:
 
-```
-INTERNAL_IP=$(curl -s -H "Metadata-Flavor: Google" \
-  http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)
+```sh
+API_IP=169.254.169.254
+INTERNAL_IP=$(curl -s http://${API_IP}/metadata/v1/interfaces/private/0/ipv4/address)
 ```
 
 Each etcd member must have a unique name within an etcd cluster. Set the etcd name to match the hostname of the current compute instance:
 
-```
+```sh
 ETCD_NAME=$(hostname -s)
 ```
 
 Create the `etcd.service` systemd unit file:
 
-```
+```sh
 cat <<EOF | sudo tee /etc/systemd/system/etcd.service
 [Unit]
 Description=etcd
@@ -95,7 +95,7 @@ EOF
 
 ### Start the etcd Server
 
-```
+```sh
 {
   sudo systemctl daemon-reload
   sudo systemctl enable etcd
@@ -109,7 +109,7 @@ EOF
 
 List the etcd cluster members:
 
-```
+```sh
 sudo ETCDCTL_API=3 etcdctl member list \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/etcd/ca.pem \
@@ -119,7 +119,7 @@ sudo ETCDCTL_API=3 etcdctl member list \
 
 > output
 
-```
+```sh
 3a57933972cb5131, started, controller-2, https://10.240.0.12:2380, https://10.240.0.12:2379, false
 f98dc20bce6225a0, started, controller-0, https://10.240.0.10:2380, https://10.240.0.10:2379, false
 ffed16798470cab5, started, controller-1, https://10.240.0.11:2380, https://10.240.0.11:2379, false
