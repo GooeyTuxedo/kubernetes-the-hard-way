@@ -36,7 +36,8 @@ Copy the `encryption-config.yaml` encryption config file to each controller inst
 
 ```
 for instance in controller-0 controller-1 controller-2; do
-  gcloud compute scp encryption-config.yaml ${instance}:~/
+  # instance=controller-0
+  sftp -i {identity_file} -o StrictHostKeyChecking=no root@$(doctl compute droplet get ${instance} --no-header --format "PublicIPv4"):/root/ encryption-config.yaml
 done
 ```
 
